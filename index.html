@@ -1,4 +1,12 @@
-
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Photo Booth Studio</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
+</head>
+<body>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;1,400&family=Lato:wght@300;400;700&family=Pacifico&family=Press+Start+2P&display=swap');
 *{box-sizing:border-box;margin:0;padding:0}
@@ -115,6 +123,8 @@ body{font-family:'Lato',sans-serif;background:#f5f5f5;min-height:100vh}
         <h3>Foto siap diunduh!</h3>
         <p>Foto sudah digabungkan dengan frame template pilihanmu.</p>
         <button class="btn-dl" id="btnDl">⬇ Download Foto</button>
+        <button class="btn-dl" id="btnGif" style="background:#6c3fc5;">🎞 Download GIF</button>
+        <div id="gifStatus" style="display:none;font-size:12px;color:#888;text-align:center;padding:4px 0"></div>
         <button class="btn-rs" id="btnRestart">↺ Mulai Ulang</button>
       </div>
     </div>
@@ -933,5 +943,106 @@ document.getElementById('btnTo3').addEventListener('click',()=>{stopCam();showPa
 document.getElementById('btnDl').addEventListener('click',()=>{const a=document.createElement('a');a.download=`photobooth_${selTpl.id}_${Date.now()}.jpg`;a.href=document.getElementById('finalCanvas').toDataURL('image/jpeg',.95);a.click();});
 document.getElementById('btnRestart').addEventListener('click',()=>{selTpl=null;photos=[null,null];curSlot=0;document.getElementById('btnTo2').disabled=true;document.querySelectorAll('.tcard').forEach(c=>c.classList.remove('sel'));showPage(1);});
 
+// ── GIF GENERATION ────────────────────────────────────────────────────
+document.getElementById('btnGif').addEventListener('click', async ()=>{
+  const btn = document.getElementById('btnGif');
+  const status = document.getElementById('gifStatus');
+  btn.disabled = true;
+  btn.textContent = '⏳ Membuat GIF...';
+  status.style.display = 'block';
+  status.textContent = 'Menyiapkan frame...';
+
+  const tpl = selTpl;
+  const W = 600, m = 22, pw = W - m*2, ph = Math.round(pw*.72), g = 10, fh = 140;
+  const H = m + 2*(ph+g) - g + fh;
+
+  // Build frames: one per photo highlighted + combo frame
+  // Frame 1: photo 1 highlighted (photo 2 dimmed)
+  // Frame 2: photo 2 highlighted (photo 1 dimmed)
+  // Frame 3: both normal (full result)
+  const frameCount = 4; // p1 highlight, p2 highlight, both, both again for pause
+
+  function renderFrame(frameIdx) {
+    return new Promise(resolve => {
+      const c = document.createElement('canvas');
+      c.width = W; c.height = H;
+      const ctx = c.getContext('2d');
+
+      // Draw template background + decorations using a modified render
+      // We render the full template then overlay per-frame effects
+      tpl.final(ctx, W, H, photos, ()=>{
+        // Add frame-specific overlay
+        if(frameIdx === 0) {
+          // Dim photo 2
+          ctx.fillStyle = 'rgba(0,0,0,0.55)';
+          rr(ctx, m, m + (ph+g), pw, ph, 5);
+          ctx.fill();
+          // Glow border on photo 1
+          ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+          ctx.lineWidth = 4;
+          rr(ctx, m, m, pw, ph, 5);
+          ctx.stroke();
+        } else if(frameIdx === 1) {
+          // Dim photo 1
+          ctx.fillStyle = 'rgba(0,0,0,0.55)';
+          rr(ctx, m, m, pw, ph, 5);
+          ctx.fill();
+          // Glow border on photo 2
+          ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+          ctx.lineWidth = 4;
+          rr(ctx, m, m + (ph+g), pw, ph, 5);
+          ctx.stroke();
+        }
+        // frames 2 & 3: no overlay, full normal result
+        resolve(c);
+      });
+    });
+  }
+
+  try {
+    const gif = new GIF({
+      workers: 2,
+      quality: 8,
+      width: W,
+      height: H,
+      workerScript: 'https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js'
+    });
+
+    const delays = [700, 700, 900, 1200]; // ms per frame
+    for(let i = 0; i < frameCount; i++){
+      status.textContent = `Rendering frame ${i+1}/${frameCount}...`;
+      const frameIdx = i < 2 ? i : 2; // 0,1,2,2
+      const canvas = await renderFrame(frameIdx);
+      gif.addFrame(canvas, {delay: delays[i], copy: true});
+    }
+
+    gif.on('progress', p => {
+      status.textContent = `Encoding GIF: ${Math.round(p*100)}%`;
+    });
+
+    gif.on('finished', blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.download = `photobooth_${tpl.id}_${Date.now()}.gif`;
+      a.href = url;
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(url), 5000);
+      btn.disabled = false;
+      btn.textContent = '🎞 Download GIF';
+      status.textContent = '✅ GIF berhasil dibuat!';
+      setTimeout(()=>{ status.style.display='none'; }, 3000);
+    });
+
+    gif.render();
+  } catch(e) {
+    console.error(e);
+    btn.disabled = false;
+    btn.textContent = '🎞 Download GIF';
+    status.textContent = '❌ Gagal membuat GIF. Coba lagi.';
+  }
+});
+
 renderGrid();showPage(1);
 </script>
+</body>
+</html>
